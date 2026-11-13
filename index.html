@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Учёт за неделю</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--text:#1d2330;--muted:#6b7385;--line:#e3e6ec;--accent:#2f6fed;--accent-t:#fff;--total:#eef3ff;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#14171d;--card:#1d2129;--text:#e8ebf1;--muted:#98a1b3;--line:#2d333f;--accent:#5b92ff;--accent-t:#0c1220;--total:#232b3d;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:560px;margin:0 auto;padding:20px 14px 60px}
+h1{font-size:22px;margin:0 0 4px;text-align:center}
+.sub{text-align:center;color:var(--muted);margin-bottom:16px;font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{font-size:13px;color:var(--muted);text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);font-weight:600}
+td{padding:4px 6px;border-bottom:1px solid var(--line)}
+td.d{white-space:nowrap;font-size:14px;padding-left:6px;width:1%}
+td.d input{width:auto;min-width:130px;padding:6px;font-size:14px}
+input{width:100%;font:inherit;color:var(--text);background:transparent;border:1px solid transparent;border-radius:8px;padding:8px}
+input:focus{outline:none;border-color:var(--accent);background:var(--bg)}
+td.q input{text-align:right}
+.x{width:32px;text-align:center}
+.x button{background:none;border:0;color:var(--muted);font-size:18px;cursor:pointer;padding:4px 8px}
+tfoot td{background:var(--total);font-weight:700;padding:12px 10px;border-bottom:0}
+tfoot td.r{text-align:right;padding-right:14px}
+.btn{font:inherit;font-weight:600;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--text);padding:10px 14px;cursor:pointer}
+.btn.p{background:var(--accent);color:var(--accent-t);border-color:var(--accent)}
+.bar{display:flex;gap:10px;margin:12px 0}
+.bar .btn{flex:1}
+.money{margin-top:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:18px;background:var(--total)}
+.money small{display:block;color:var(--muted);font-weight:400;font-size:13px}
+h2{font-size:18px;margin:28px 0 10px}
+details{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:8px;padding:0 12px}
+summary{cursor:pointer;padding:12px 0;display:flex;justify-content:space-between;gap:8px;font-weight:600}
+summary span:last-child{color:var(--muted);font-weight:400;text-align:right}
+details table{margin-bottom:10px}
+details td{padding:6px;font-size:14px}
+.empty{color:var(--muted);text-align:center;padding:12px}
+#st{text-align:center;color:var(--muted);font-size:12px;margin-top:10px;min-height:16px}
+</style>
+</head>
+<body>
+<main>
+<h1>Учёт за неделю</h1>
+<div class="sub" id="week"></div>
+<div class="card">
+<table>
+<thead><tr><th>Дата</th><th>Артикул</th><th style="text-align:right">Кол-во</th><th class="x"></th></tr></thead>
+<tbody id="rows"></tbody>
+<tfoot><tr><td colspan="2">Итого</td><td class="r" id="tq">0</td><td></td></tr></tfoot>
+</table>
+</div>
+<div class="bar">
+<button class="btn p" id="add">+ Добавить строку</button>
+<button class="btn" id="end">Закончить неделю</button>
+</div>
+<div class="card money"><div>Итого за неделю в деньгах<small>количество × 5</small></div><div id="tm">0</div></div>
+<div id="st"></div>
+<h2>Архив</h2>
+<div id="arch"></div>
+<h2>Синхронизация между устройствами</h2>
+<div class="card" style="padding:12px">
+<input id="cdb" placeholder="Адрес базы Firebase (https://....firebasedatabase.app)" style="border-color:var(--line);margin-bottom:8px">
+<input id="ccode" placeholder="Твой секретный код (придумай любой)" style="border-color:var(--line);margin-bottom:8px">
+<button class="btn p" id="csave" style="width:100%">Сохранить и подключить</button>
+</div>
+</main>
+<script>
+(function(){
+var RATE=5, state={rows:[],weekStart:"",archive:[]}, ref=null, timer=null, ready=false, dirty=false;
+function iso(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+function today(){return iso(new Date())}
+function monday(){var d=new Date();d.setDate(d.getDate()-((d.getDay()+6)%7));return iso(d)}
+function fmt(s){var p=s.split("-");return p[2]+"."+p[1]+"."+p[0]}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function uid(){return Math.random().toString(36).slice(2,9)}
+function num(v){var n=parseFloat(v);return isFinite(n)?n:0}
+function total(rows){return rows.reduce(function(a,r){return a+num(r.qty)},0)}
+function setSt(t){document.getElementById("st").textContent=t}
+
+function archiveWeek(){
+  var rows=state.rows.filter(function(r){return r.article||num(r.qty)});
+  if(rows.length){
+    var t=total(rows);
+    state.archive.unshift({start:state.weekStart,end:today(),rows:rows,total:t,money:t*RATE});
+  }
+  state.rows=[];state.weekStart=monday();
+}
+function rollover(){
+  if(state.weekStart&&state.weekStart<monday()){archiveWeek();return true}
+  return false;
+}
+function cfg(){try{return JSON.parse(localStorage.getItem("cfg")||"null")}catch(e){return null}}
+function url(){var c=cfg();if(!c||!c.db||!c.code)return null;return c.db.replace(/\/+$/,"")+"/tables/"+encodeURIComponent(c.code)+".json"}
+function save(){
+  clearTimeout(timer);dirty=true;
+  timer=setTimeout(function(){
+    timer=null;
+    state.v=Date.now();
+    var data=JSON.parse(JSON.stringify(state));
+    try{localStorage.setItem("tbl",JSON.stringify(data))}catch(e){}
+    var u=url();
+    if(!u){dirty=false;setSt("Сохранено на этом устройстве");return}
+    fetch(u,{method:"PUT",body:JSON.stringify(data)}).then(function(r){if(!r.ok)throw 0;if(!timer)dirty=false;setSt("Сохранено")}).catch(function(){setSt("Нет связи: сохранено на этом устройстве")});
+  },500);
+}
+function sums(){
+  var t=total(state.rows);
+  document.getElementById("tq").textContent=t;
+  document.getElementById("tm").textContent=t*RATE;
+}
+function render(){
+  document.getElementById("week").textContent="Неделя с "+fmt(state.weekStart);
+  var h="";
+  state.rows.forEach(function(r){
+    h+='<tr data-id="'+r.id+'"><td class="d"><input class="dt" type="date" value="'+r.date+'"></td><td><input class="a" value="'+esc(r.article)+'" placeholder="Артикул"></td><td class="q"><input class="n" type="number" inputmode="decimal" value="'+esc(r.qty)+'" placeholder="0"></td><td class="x"><button title="Удалить" data-del="1">×</button></td></tr>';
+  });
+  document.getElementById("rows").innerHTML=h;
+  sums();
+  var a=state.archive,s="";
+  if(!a.length)s='<div class="empty">Пока пусто</div>';
+  a.forEach(function(w){
+    s+='<details><summary><span>'+fmt(w.start)+' — '+fmt(w.end)+'</span><span>'+w.total+' шт · '+w.money+'</span></summary><table>';
+    w.rows.forEach(function(r){s+='<tr><td>'+fmt(r.date)+'</td><td>'+esc(r.article)+'</td><td style="text-align:right">'+esc(r.qty)+'</td></tr>'});
+    s+='<tr><td colspan="2"><b>Итого</b></td><td style="text-align:right"><b>'+w.total+'</b></td></tr></table></details>';
+  });
+  document.getElementById("arch").innerHTML=s;
+}
+function addRow(focus){
+  state.rows.push({id:uid(),date:today(),article:"",qty:""});
+  render();save();
+  if(focus){var i=document.querySelectorAll("#rows .a");if(i.length)i[i.length-1].focus()}
+}
+function find(el){var tr=el.closest("tr");if(!tr)return null;return state.rows.filter(function(r){return r.id===tr.dataset.id})[0]}
+
+var tb=document.getElementById("rows");
+tb.addEventListener("input",function(e){
+  var r=find(e.target);if(!r)return;
+  if(e.target.classList.contains("a"))r.article=e.target.value;else if(e.target.classList.contains("dt")){if(e.target.value)r.date=e.target.value}else r.qty=e.target.value;
+  sums();save();
+});
+tb.addEventListener("keydown",function(e){
+  if(e.key==="Enter"&&e.target.classList.contains("n")){e.preventDefault();addRow(true)}
+});
+tb.addEventListener("click",function(e){
+  if(e.target.dataset.del){
+    var r=find(e.target);if(!r)return;
+    state.rows=state.rows.filter(function(x){return x!==r});
+    render();save();
+  }
+});
+document.getElementById("add").onclick=function(){addRow(true)};
+var armed=false,endBtn=document.getElementById("end");
+endBtn.onclick=function(){
+  if(!armed){armed=true;endBtn.textContent="Нажми ещё раз для подтверждения";setTimeout(function(){armed=false;endBtn.textContent="Закончить неделю"},4000);return}
+  armed=false;endBtn.textContent="Закончить неделю";
+  archiveWeek();state.rows.push({id:uid(),date:today(),article:"",qty:""});render();save();
+};
+
+function setFrom(d){
+  state={rows:d&&d.rows||[],weekStart:d&&d.weekStart||monday(),archive:d&&d.archive||[],v:d&&d.v||0};
+  var ch=rollover();
+  if(!state.rows.length)state.rows.push({id:uid(),date:today(),article:"",qty:""});
+  render();return ch;
+}
+function apply(d,nosave){var ch=setFrom(d);if(!nosave&&(ch||!d))save()}
+function busy(){return dirty||timer||(document.activeElement&&document.activeElement.tagName==="INPUT")}
+function poll(){
+  var u=url();if(!u||busy())return;
+  fetch(u).then(function(r){return r.json()}).then(function(rd){
+    if(!rd||busy()||(rd.v||0)<=(state.v||0))return;
+    if(setFrom(rd))save();
+  }).catch(function(){});
+}
+function start(){
+  if(ready)return;ready=true;
+  var d=null;try{d=JSON.parse(localStorage.getItem("tbl")||"null")}catch(e){}
+  var u=url();
+  apply(d,!!u);
+  if(!u)return;
+  fetch(u).then(function(r){return r.json()}).then(function(rd){
+    if(rd){if(!busy()&&setFrom(rd))save()}else save();
+    setSt("Синхронизация включена");
+  }).catch(function(){setSt("Нет связи с базой, работаю на этом устройстве")});
+  setInterval(poll,8000);
+}
+var c0=cfg();
+document.getElementById("cdb").value=(c0&&c0.db)||"https://art-nli-default-rtdb.europe-west1.firebasedatabase.app";
+if(c0)document.getElementById("ccode").value=c0.code||"";
+document.getElementById("csave").onclick=function(){
+  var db=document.getElementById("cdb").value.trim(),code=document.getElementById("ccode").value.trim();
+  try{if(db&&code)localStorage.setItem("cfg",JSON.stringify({db:db,code:code}));else localStorage.removeItem("cfg")}catch(e){}
+  location.reload();
+};
+start();
+})();
+</script>
+</body>
+</html>
