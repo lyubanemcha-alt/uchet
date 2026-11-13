@@ -39,6 +39,9 @@ details table{margin-bottom:10px}
 details td{padding:6px;font-size:14px}
 .empty{color:var(--muted);text-align:center;padding:12px}
 #st{text-align:center;color:var(--muted);font-size:12px;margin-top:10px;min-height:16px}
+body.view .bar,body.view .sync,body.view .x{display:none}
+body.view table input,body.view table select{pointer-events:none}
+input:disabled,select:disabled{opacity:1;-webkit-text-fill-color:var(--text);color:var(--text)}
 </style>
 </head>
 <body>
@@ -60,15 +63,23 @@ details td{padding:6px;font-size:14px}
 <div id="st"></div>
 <h2>Архив</h2>
 <div id="arch"></div>
-<h2>Синхронизация между устройствами</h2>
+<div class="sync"><h2>Синхронизация между устройствами</h2>
 <div class="card" style="padding:12px">
 <input id="cdb" placeholder="Адрес базы Firebase (https://....firebasedatabase.app)" style="border-color:var(--line);margin-bottom:8px">
 <input id="ccode" placeholder="Твой секретный код (придумай любой)" style="border-color:var(--line);margin-bottom:8px">
 <button class="btn p" id="csave" style="width:100%">Сохранить и подключить</button>
+<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+<div style="font-weight:600;margin-bottom:6px">Ссылка только для просмотра</div>
+<input id="vlink" readonly placeholder="Ссылка ещё не создана" style="border-color:var(--line);margin-bottom:8px">
+<div style="display:flex;gap:8px"><button class="btn p" id="vmake" style="flex:1">Создать ссылку</button><button class="btn" id="voff" style="flex:1">Отключить</button></div>
+<div id="vnote" style="color:var(--muted);font-size:13px;margin-top:6px"></div>
 </div>
+</div></div>
 </main>
 <script>
 (function(){
+var DEFAULTDB="https://art-nli-default-rtdb.europe-west1.firebasedatabase.app",VIEW=(location.hash.indexOf("#v=")===0)?decodeURIComponent(location.hash.slice(3)):"";
+if(VIEW)document.body.classList.add("view");
 var RATE=5, state={rows:[],weekStart:"",archive:[]}, ref=null, timer=null, ready=false, dirty=false;
 function iso(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
 function today(){return iso(new Date())}
@@ -94,7 +105,7 @@ function rollover(){
 }
 function cfg(){try{return JSON.parse(localStorage.getItem("cfg")||"null")}catch(e){return null}}
 function url(){var c=cfg();if(!c||!c.db||!c.code)return null;return c.db.replace(/\/+$/,"")+"/tables/"+encodeURIComponent(c.code)+".json"}
-function save(){
+function save(){if(VIEW)return;
   clearTimeout(timer);dirty=true;
   timer=setTimeout(function(){
     timer=null;
@@ -103,7 +114,7 @@ function save(){
     try{localStorage.setItem("tbl",JSON.stringify(data))}catch(e){}
     var u=url();
     if(!u){dirty=false;setSt("Сохранено на этом устройстве");return}
-    fetch(u,{method:"PUT",body:JSON.stringify(data)}).then(function(r){if(!r.ok)throw 0;if(!timer)dirty=false;setSt("Сохранено")}).catch(function(){setSt("Нет связи: сохранено на этом устройстве")});
+    pushCopy(data);fetch(u,{method:"PUT",body:JSON.stringify(data)}).then(function(r){if(!r.ok)throw 0;if(!timer)dirty=false;setSt("Сохранено")}).catch(function(){setSt("Нет связи: сохранено на этом устройстве")});
   },500);
 }
 function sums(){
@@ -160,10 +171,10 @@ endBtn.onclick=function(){
 };
 
 function setFrom(d){
-  state={rows:d&&d.rows||[],weekStart:d&&d.weekStart||monday(),archive:d&&d.archive||[],v:d&&d.v||0};
-  var ch=rollover();
-  if(!state.rows.length)state.rows.push({id:uid(),date:today(),article:"",qty:""});
-  render();return ch;
+  state={rows:d&&d.rows||[],weekStart:d&&d.weekStart||monday(),archive:d&&d.archive||[],v:d&&d.v||0,vc:d&&d.vc||""};
+  var ch=VIEW?false:rollover();
+  if(!VIEW&&!state.rows.length)state.rows.push({id:uid(),date:today(),article:"",qty:""});
+  render();showV();return ch;
 }
 function apply(d,nosave){var ch=setFrom(d);if(!nosave&&(ch||!d))save()}
 function busy(){return dirty||timer||(document.activeElement&&document.activeElement.tagName==="INPUT")}
@@ -174,8 +185,29 @@ function poll(){
     if(setFrom(rd))save();
   }).catch(function(){});
 }
+function rnd(){var a=new Uint8Array(16);crypto.getRandomValues(a);return Array.prototype.map.call(a,function(x){return x.toString(16).padStart(2,"0")}).join("")}
+function pushCopy(data){
+  var c=cfg();if(!c||!data.vc)return;
+  var cp=JSON.parse(JSON.stringify(data));delete cp.vc;
+  fetch(c.db.replace(/\/+$/,"")+"/tables/"+encodeURIComponent(data.vc)+".json",{method:"PUT",body:JSON.stringify(cp)}).catch(function(){});
+}
+function vurl(){return state.vc?location.origin+location.pathname+"#v="+encodeURIComponent(state.vc):""}
+function showV(){var e=document.getElementById("vlink");if(e)e.value=vurl()}
+function vnote(t){document.getElementById("vnote").textContent=t}
+var firstView=true;
+function viewLoad(){
+  fetch(DEFAULTDB+"/tables/"+encodeURIComponent(VIEW)+".json").then(function(r){return r.json()}).then(function(rd){
+    if(!rd){setFrom(null);setSt("Данных нет или ссылка отключена");return}
+    if(firstView||(rd.v||0)!==(state.v||0)){
+      firstView=false;setFrom(rd);
+      document.querySelectorAll("input,select").forEach(function(i){i.disabled=true});
+      setSt("Только просмотр");
+    }
+  }).catch(function(){setSt("Нет связи с базой")});
+}
 function start(){
   if(ready)return;ready=true;
+  if(VIEW){viewLoad();setInterval(viewLoad,8000);return}
   var d=null;try{d=JSON.parse(localStorage.getItem("tbl")||"null")}catch(e){}
   var u=url();
   apply(d,!!u);
@@ -193,6 +225,16 @@ document.getElementById("csave").onclick=function(){
   var db=document.getElementById("cdb").value.trim(),code=document.getElementById("ccode").value.trim();
   try{if(db&&code)localStorage.setItem("cfg",JSON.stringify({db:db,code:code}));else localStorage.removeItem("cfg")}catch(e){}
   location.reload();
+};
+document.getElementById("vmake").onclick=function(){
+  if(!url()){vnote("Сначала подключи синхронизацию выше.");return}
+  if(!state.vc)state.vc=rnd();
+  save();showV();vnote("Ссылка создана. По ней данные можно только смотреть.");
+};
+document.getElementById("voff").onclick=function(){
+  var c=cfg();
+  if(state.vc&&c)fetch(c.db.replace(/\/+$/,"")+"/tables/"+encodeURIComponent(state.vc)+".json",{method:"DELETE"}).catch(function(){});
+  state.vc="";save();showV();vnote("Ссылка отключена.");
 };
 start();
 })();
